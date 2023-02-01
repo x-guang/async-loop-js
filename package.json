@@ -1,0 +1,28 @@
+{
+  "name": "async-loop-js",
+  "version": "1.0.2",
+  "description": "Compose asynchronous for/while/forOf loop cushily with Promises, decoupled from ES2015+ env and verbose babel compiling.",
+  "main": "index.js",
+  "scripts": {
+    "test": "node test.js"
+  },
+  "keywords": [
+    "asynchronous",
+    "loop",
+    "promise",
+    "async",
+    "then",
+    "iterable",
+    "iterator"
+  ],
+  "author": "X.G",
+  "license": "BSD",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/x-guang/async-loop-js.git"
+  },
+  "bugs": {
+    "url": "https://github.com/x-guang/async-loop-js/issues"
+  },
+  "homepage": "https://github.com/x-guang/async-loop-js#readme"
+}
