@@ -8,7 +8,7 @@ function AsyncLoop(opts) {
   this.loopConditions = normalizeArr(opts.loopConditions || opts.loopCondition).slice();
   //if (this.loopConditions[0]) 
   //const _promiseCall=callChain=>callChain&&callChain.length?promiseCall(callChain): undefined
-  const checkCondition = () => !this.loopConditions.length ? undefined : promiseCall(this.loopConditions).then((condition) => !condition && (this.breaked = true)).catch(e => (this.abrupt = true, Promise.reject(e)))
+  const checkCondition = initVal => !this.loopConditions.length ? initVal : promiseCall(this.loopConditions, initVal).then(condition => !condition && (this.breaked = true)).then(() => initVal).catch(e => (this.abrupt = true, Promise.reject(e)))
   this.loopBlocks.unshift(checkCondition);
   var initVal, inited = false
   this.loopBlocks.unshift(() => inited ? initVal : this.loopInits.length ? (inited = true, initVal = promiseCall(this.loopInits)) : undefined);
@@ -35,8 +35,8 @@ Object.assign(AsyncLoop.prototype, {
     if (!this.breaked) {
       //var callChain=
       const isRedirected = () => this.abrupt || this.breaked || this.continued
-      this.p = promiseCall(this.loopBlocks, isRedirected)
-        .catch((e) => !isRedirected() && this.loopCatchs[0] ? promiseCall([() => e].concat(this.loopCatchs), isRedirected) : undefined)
+      this.p = promiseCall(this.loopBlocks, undefined, isRedirected)
+        .catch((e) => !isRedirected() && this.loopCatchs[0] ? promiseCall(this.loopCatchs, e, isRedirected) : undefined)
         .then(() => !this.abrupt && !this.breaked ? promiseCall(this.loopUpdations) : undefined)
         .then(this.loopAsyncCb);
       /*Promise.resolve()
@@ -46,7 +46,7 @@ Object.assign(AsyncLoop.prototype, {
     } else if (!this.abrupt) {
       //afterLoop
       log("afterAsyncLoop");
-      val = promiseCall(this.afterLoop, () => this.abrupt);
+      val = promiseCall(this.afterLoop, undefined, () => this.abrupt);
       this.abrupt = true;
       this.loopAsync(val);
     }
@@ -107,8 +107,7 @@ Object.assign(AsyncLoop.prototype, {
   forOf(iterable) {
     this.opts.iterable = iterable
     var iterator, pointer
-    iterator = toIterator(iterable)
-    return this //.initLoop(()=>iterator = toIterator(iterable))
+    return this.initLoop(() => iterator = toIterator(iterable))
       .condition(() => (pointer = iterator.next(), !pointer.done))
       //.updation(() => pointer=iterator.next())
       .thenLoop(() => pointer.value)
@@ -119,11 +118,11 @@ Object.assign(AsyncLoop.prototype, {
   },
 });
 
-function promiseCall(callChain, shouldStop, getNextIndex) {
+function promiseCall(callChain, initVal, shouldStop, getNextIndex) {
   var callStack = callChain || [];
   if (!Array.isArray(callStack)) callStack = [callStack];
   var callIndex = 0;
-  var p; //=Promise.resolve()
+  //var p;
   //log(callStack);
   //console.trace(callStack)
 
@@ -153,7 +152,7 @@ function promiseCall(callChain, shouldStop, getNextIndex) {
     p = p.then(attachCb, errBubble); //不再catch
     return p;
   }
-  return Promise.resolve(attachCb()); //.then(()=>log("promiseCalled"))
+  return Promise.resolve(attachCb(initVal)); //.then(()=>log("promiseCalled"))
 }
 
 function toIterator(iterable) {
