@@ -2,6 +2,7 @@
 *.bak
 README.MD.bak
 .*.js
+.*.MD
 
 # dotenv environment variables file
 .env
@@ -13,3 +14,7 @@ jspm_packages/
 
 # Output of 'npm pack'
 *.tgz
+
+# Compilation config and built files
+rollup.config.js
+build/

@@ -1,10 +1,19 @@
 {
   "name": "async-loop-js",
-  "version": "1.0.2",
+  "version": "1.0.6",
   "description": "Compose asynchronous for/while/forOf loop cushily with Promises, decoupled from ES2015+ env and verbose babel compiling.",
   "main": "index.js",
   "scripts": {
-    "test": "node test.js"
+    "test": "node test.js",
+    "build": "rollup --config",
+    "pack": "npm pack"
+  },
+  "devDependencies": {
+    "@babel/preset-env": "^7.20.2",
+    "@rollup/plugin-babel": "^6.0.3",
+    "@rollup/plugin-commonjs": "^24.0.1",
+    "@rollup/plugin-terser": "^0.4.0",
+    "rollup": "^3.12.1"
   },
   "keywords": [
     "asynchronous",

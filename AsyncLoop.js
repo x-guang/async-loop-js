@@ -15,10 +15,14 @@ function AsyncLoop(opts) {
   this.loopUpdations = normalizeArr(opts.loopUpdations || opts.loopUpdation).slice();
   this.loopCatchs = normalizeArr(opts.loopCatchs).slice();
   this.afterLoop = normalizeArr(opts.afterLoop).slice();
+
+  opts.iterables = opts.iterables || []
   if (opts.iterable) this.forOf(opts.iterable)
+  if (opts.iterables.length) opts.iterables.forEach(it => this.forOf(it))
+
   this.loopAsyncCb = this.loopAsync.bind(this);
-  this.abrupt = this.continued = this.breaked = false;
   this.p = null;
+  this.RESERVED_BLOCKS_NUM = 2
   this.data = {} //public
 }
 
@@ -27,17 +31,17 @@ Object.assign(AsyncLoop.prototype, {
     //scheduler
     //if (this.breaked) this.abrupt = true
     if (this.abrupt) return this.resolve(val), (this.p = null);
-    //log(this.abrupt, this.continued, this.breaked);
+    //console.debug(this.abrupt, this.continued, this.breaked);
     //sleep(100);
     if (this.continued) {
       this.continued = false;
     }
-    if (!this.breaked) {
+    if (!this.breaked && this.loopBlocks.length > this.RESERVED_BLOCKS_NUM) {
       //var callChain=
       const isRedirected = () => this.abrupt || this.breaked || this.continued
       this.p = promiseCall(this.loopBlocks, undefined, isRedirected)
         .catch((e) => !isRedirected() && this.loopCatchs[0] ? promiseCall(this.loopCatchs, e, isRedirected) : undefined)
-        .then(() => !this.abrupt && !this.breaked ? promiseCall(this.loopUpdations) : undefined)
+        .then(endValue => !this.abrupt && !this.breaked ? promiseCall(this.loopUpdations) : endValue)
         .then(this.loopAsyncCb);
       /*Promise.resolve()
         .then(loopAsync).catch(loopCatch)
@@ -45,10 +49,9 @@ Object.assign(AsyncLoop.prototype, {
           .then(loopAsync)*/
     } else if (!this.abrupt) {
       //afterLoop
-      log("afterAsyncLoop");
-      val = promiseCall(this.afterLoop, undefined, () => this.abrupt);
-      this.abrupt = true;
-      this.loopAsync(val);
+      //console.debug("afterAsyncLoop");
+      promiseCall(this.afterLoop, undefined, () => this.abrupt)
+        .then(val => (this.abrupt = true, this.loopAsync(val)));
     }
   },
 
@@ -62,9 +65,31 @@ Object.assign(AsyncLoop.prototype, {
     return this.breaked = true
   },
 
-  run() {
+  run(force) { //ensure init once
     //this.resolve
-    return new Promise((res, rej) => ((this.resolve = res), promiseCall(this.loopInits).then(this.loopAsyncCb)));
+    if (this.running && !force) return;
+    this.running = true
+    var mainP = new Promise((res, rej) => ((this.resolve = res), promiseCall([]).then(this.loopAsyncCb)));
+    mainP = mainP.then(() => this.running = false)
+    return this.mainP = mainP
+  },
+  ensureRun(instant) {
+    const delayRun = (local) => {
+      //if(!local) this.removeThen(delayRun)
+      this._reset()
+      this.run(true)
+    }
+    if (!this.running) return delayRun(true)
+    if (!this.loopConsumed) return
+    if (instant) this.end() //all loop ended
+    return this.mainP.then(delayRun)
+  },
+  isRunning() {
+    return !!this.running
+  },
+  _reset() { //status
+    this.abrupt = this.continued = this.breaked = false;
+    this.loopConsumed = false
   },
 
   initLoop(nextCb, errCb) {
@@ -104,13 +129,48 @@ Object.assign(AsyncLoop.prototype, {
     const errCb = e => Promise.resolve(finallyCb()).then(() => Promise.reject(e))
     return [nextCb, errCb]
   },
-  forOf(iterable) {
-    this.opts.iterable = iterable
-    var iterator, pointer
-    return this.initLoop(() => iterator = toIterator(iterable))
-      .condition(() => (pointer = iterator.next(), !pointer.done))
-      //.updation(() => pointer=iterator.next())
+  forOf(iterable, override) {
+    var iterables = this.opts.iterables
+    if (override) iterables.length = 0, this.iterablePos = 0
+    iterables.push(iterable)
+    if (this.iterableInited) return this
+    this.iterableInited = true
+
+    var iterables, iterator, pointer
+    this.iterablePos = 0
+    const condition = () => {
+      pointer = iterator.next()
+      if (!pointer.done) return true
+
+      while (this.iterablePos < iterables.length) {
+        iterator = toIterator(iterables[this.iterablePos++])
+        pointer = iterator.next()
+        if (!pointer.done) return true
+      }
+      this.loopConsumed = true //update status
+      return false
+    }
+    return this.initLoop(() => iterator = toIterator(iterables[this.iterablePos++]))
+      .condition(condition)
+      //.condition(() => (pointer = iterator.next(), !pointer.done))
       .thenLoop(() => pointer.value)
+  },
+
+  removeThen(nextCb, errCb) {
+    for (let i = this.afterLoop.length; i > -1; i--) {
+      var call = this.afterLoop[i]
+      if (call === nextCb) {
+        this.afterLoop.splice(i, 1)
+        break
+      }
+      if (!Array.isArray(call)) continue
+      let found
+      if (call[0] === nextCb) call[0] = null, found = true
+      if (call[1] === errCb) call[1] = null, found = true
+      if (!found) continue
+      if (!call[0] && !call[1]) this.afterLoop.splice(i, 1)
+      break;
+    }
   },
 
   clone() {
@@ -118,25 +178,24 @@ Object.assign(AsyncLoop.prototype, {
   },
 });
 
-function promiseCall(callChain, initVal, shouldStop, getNextIndex) {
+function promiseCall(callChain, initVal, shouldStop, getNextIndex, getStepLock) {
   var callStack = callChain || [];
   if (!Array.isArray(callStack)) callStack = [callStack];
   var callIndex = 0;
   //var p;
-  //log(callStack);
-  //console.trace(callStack)
+  //console.debug(callStack);
 
   function errBubble(e) {
     //console.error("errBubble",e)
     for (var currCall; currCall = callStack[callIndex]; callIndex++) {
       if (Array.isArray(currCall) && typeof currCall[1] === "function")
-        return currCall[1](e)
+        return Promise.resolve(currCall[1](e)).then(attachCb, errBubble)
     }
     throw e
   }
 
   function attachCb(val) {
-    var nextIndex = getNextIndex && getNextIndexel();
+    var nextIndex = getNextIndex && getNextIndex(callIndex);
     if (isNumeric(nextIndex)) { //&&nextIndex>-1
       var currCall = callStack[nextIndex]
       if (currCall) callIndex = nextIndex
@@ -146,13 +205,15 @@ function promiseCall(callChain, initVal, shouldStop, getNextIndex) {
     if (!currCall || (shouldStop && shouldStop()))
       return (callStack = p = null), val;
     if (!Array.isArray(currCall)) currCall = [currCall];
+    var stepLock = getStepLock && getStepLock(currCall, callIndex)
     var p;
-    //log(val, currCall+"");
+    //console.debug(val, currCall+"");
     p = Promise.resolve(val).then(currCall[0], currCall[1]);
+    if (stepLock) p = Promise.race([p, stepLock])
     p = p.then(attachCb, errBubble); //不再catch
     return p;
   }
-  return Promise.resolve(attachCb(initVal)); //.then(()=>log("promiseCalled"))
+  return Promise.resolve(attachCb(initVal)); //.then(()=>console.debug("promiseCalled"))
 }
 
 function toIterator(iterable) {
@@ -184,7 +245,7 @@ function toIterator(iterable) {
 }
 
 function isNumeric(obj) {
-  return (typeof obj === "number" && !isNaN(obj)) || (typeof obj === "number" && !!obj && !isNaN(+obj))
+  return (typeof obj === "number" && !isNaN(obj)) || (typeof obj === "string" && !!obj && !isNaN(+obj))
 }
 
 if (typeof module === "object") module.exports = AsyncLoop;
